@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 微信推送模块(多渠道)
-支持:PushPlus(默认)/ Server酱Turbo / 企业微信群机器人
+支持:Server酱Turbo(默认)/ 企业微信群机器人 / PushPlus(已弃用,需付费实名)
 凭证从环境变量读取,不写死在代码里:
-  PushPlus:      export PUSHPLUS_TOKEN=xxx
-  Server酱Turbo: export SERVERCHAN_SENDKEY=xxx
+  Server酱Turbo: export SERVERCHAN_SENDKEY=xxx   # 当前使用
   企业微信机器人: export WECOM_WEBHOOK=xxx
+  PushPlus:      export PUSHPLUS_TOKEN=xxx       # 已弃用
 
 用法:
-  # 命令行发送
-  python3.11 wechat_push.py --channel pushplus --title "选股结果" --content-file result.md
+  # 命令行发送(默认读 .push_config.json 里的 channel)
   python3.11 wechat_push.py --title "测试" --content "**加粗**内容"
+  python3.11 wechat_push.py --channel serverchan --title "选股结果" --content-file result.md
 
   # 作为模块调用
   from wechat_push import push, format_table
