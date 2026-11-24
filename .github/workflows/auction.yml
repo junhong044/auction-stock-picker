@@ -1,0 +1,61 @@
+name: A股竞价选股 · 每交易日自动运行
+
+on:
+  schedule:
+    # GitHub Actions cron 使用 UTC。北京时间 9:26 = UTC 1:26,周一至周五
+    - cron: '26 1 * * 1-5'
+  workflow_dispatch:  # 支持手动点击运行
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auction-picker
+  cancel-in-progress: false
+
+jobs:
+  pick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 运行竞价选股
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/results
+        run: |
+          mkdir -p "$OUTPUT_DIR"
+          python auction_stock_picker.py --source eastmoney --top 20 --no-chart
+
+      - name: 归档结果到 results 目录
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f results/ README.md 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: 竞价选股结果 $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git push
+          else
+            echo "无新增结果,跳过提交"
+          fi
+
+      - name: 上传运行产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 竞价选股结果-${{ github.run_number }}
+          path: results/
+          if-no-files-found: warn
