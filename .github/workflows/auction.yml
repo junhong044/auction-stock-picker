@@ -2,8 +2,12 @@ name: A股竞价选股 · 每交易日自动运行
 
 on:
   schedule:
-    # GitHub Actions cron 使用 UTC。北京时间 9:26 = UTC 1:26,周一至周五
-    - cron: '26 1 * * 1-5'
+    # GitHub Actions 免费版 cron 高峰期常延迟数十分钟甚至更久。
+    # 错峰三点触发 + push_from_results 当日去重,确保准点附近至少成功推送一次。
+    # 北京时间 = UTC+8。竞价数据 9:25 出,故最早 9:26 才有效:
+    - cron: '26 1 * * 1-5'   # 9:26 主触发
+    - cron: '35 1 * * 1-5'   # 9:35 备份(若主触发延迟/失败)
+    - cron: '50 1 * * 1-5'   # 9:50 兜底
   workflow_dispatch:  # 支持手动点击运行
 
 permissions:
@@ -55,13 +59,24 @@ jobs:
             echo "无新增结果,跳过提交"
           fi
 
-      - name: 微信推送结果(情绪+双区Top3)
+      - name: 微信推送结果(情绪+双区Top3,带重试+去重)
         if: always()
         env:
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
           OUTPUT_DIR: ${{ github.workspace }}/results
         run: |
           python push_from_results.py auction_v3 || echo "推送失败,不影响归档"
+
+      - name: 持久化推送标记(供错峰触发去重)
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f results/.push_done_* 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: 推送标记 $(date -u +'%Y%m%d-%H%M')" || true
+            git push || true
+          fi
 
       - name: 上传运行产物
         if: always()
