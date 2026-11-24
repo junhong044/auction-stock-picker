@@ -1,0 +1,4 @@
+﻿code,name,score,score_raw,score_worst,score_robust,gap,vol_ratio,amount_wan,turnover,float_cap,weibi,speed,amt_ratio,amt_pct,price,source,sentiment_state,sentiment_temp,zone,s_jjzf,s_jje,s_noe,s_vol_ratio,s_turnover_fit,s_float_cap,s_activeness,s_momentum
+301318,维海德,54.27,67.42,34.53,54.27,4.97,4.69,26355.5,12.51,21.79,4.17,-0.09,1209.5,66.7,23.39,EM,主升,100,,92.5,66.7,34.5,52.7,100,90.1,41.8,40.3
+300785,值得买,39.62,66.03,0.0,39.62,2.73,3.26,67296.6,17.62,36.91,22.26,0.28,1823.3,100.0,28.37,EM,,,,71.7,70.0,68.4,32.3,100,100.0,0.0,56.7
+301261,恒工精密,33.72,56.21,0.0,33.72,4.26,3.43,89071.7,11.27,79.56,-2.3,0.01,1119.6,33.3,76.01,EM,,,,96.2,33.3,25.3,34.7,100,100.0,0.0,39.0
