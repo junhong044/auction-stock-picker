@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/workspace")
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.dirname(os.path.abspath(__file__)))
 MIN_PRICE = 15.0          # 股价下限:低于此价剔除
 EXCLUDE_STAR = True       # 是否剔除科创板(688/689)
 SINA_KLINE = "https://quotes.sina.cn/cn/api/jsonp_v2.php/var%20x/CN_MarketDataService.getKLineData"
@@ -73,6 +73,43 @@ def fetch_sina_kline(session, code, days=35):
         return out
     except Exception:
         return []
+
+
+def load_dynamic_pool(base_pool, lookback_hours=36, max_new=800):
+    """动态扩容股票池:从最近的竞价结果CSV提取当日活跃股代码,合并进内置池。
+
+    竞价任务(9:26)先跑并生成CSV,形态任务(19:15)后跑,天然有时序,
+    因此每天都能把当天竞价活跃股纳入形态选股池,避免池子固定陈旧。
+    失败时静默返回原池,不影响主流程。
+    """
+    import glob
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        # 本地任务CSV在根目录,GitHub Actions 在 results/ 子目录,两处都找
+        files = glob.glob(os.path.join(base_dir, "竞价选股结果_*.csv"))
+        files += glob.glob(os.path.join(OUTPUT_DIR, "竞价选股结果_*.csv"))
+        if not files:
+            return base_pool
+        # 取最近生成的CSV
+        latest = max(files, key=os.path.getmtime)
+        if time.time() - os.path.getmtime(latest) > lookback_hours * 3600:
+            return base_pool  # 太旧,不用
+        import pandas as pd
+        df = pd.read_csv(latest, encoding="utf-8-sig")
+        if df.empty or "code" not in df.columns:
+            return base_pool
+        extra = []
+        for c in df.head(max_new)["code"].astype(str).tolist():
+            digits = str(int(float(c))).zfill(6)  # 兼容 600519 / 600519.0
+            prefix = "sh" if digits[0] == "6" else "sz" if digits[0] in "03" else "bj"
+            code = prefix + digits
+            if digits.startswith(("688", "689")):   # 同样剔除科创板
+                continue
+            extra.append(code)
+        merged = list(dict.fromkeys(list(base_pool) + extra))  # 去重保序
+        return merged[:800]  # 上限800只,控制K线拉取耗时
+    except Exception:
+        return base_pool
 
 
 def fetch_batch(pool, max_workers=12):
@@ -333,7 +370,14 @@ def main():
     raw_cnt = len(pool)
     if EXCLUDE_STAR:
         pool = [c for c in pool if not re.sub(r"\D", "", c).startswith(("688", "689"))]
-    print(f"[*] 股票池 {len(pool)} 只(原始{raw_cnt},剔除科创板{raw_cnt-len(pool)}),拉取新浪日K...")
+    star_removed = raw_cnt - len(pool)
+    # 动态扩容:并入最近竞价活跃股(9:26竞价先跑,19:15形态后跑,池子每日更新)
+    if not args.pool:
+        before = len(pool)
+        pool = load_dynamic_pool(pool)
+        if len(pool) > before:
+            print(f"[*] 动态池:并入当日竞价活跃股 +{len(pool)-before} 只")
+    print(f"[*] 股票池 {len(pool)} 只(原始{raw_cnt},剔除科创板{star_removed}),拉取新浪日K...")
 
     t0 = time.time()
     kdata = fetch_batch(pool)
