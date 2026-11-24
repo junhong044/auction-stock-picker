@@ -38,6 +38,14 @@ jobs:
           git diff --cached --quiet || git commit -m "auto: 形态选股结果 $(date +%Y%m%d)"
           git push
 
+      - name: 微信推送结果
+        if: always()
+        env:
+          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+          OUTPUT_DIR: ${{ github.workspace }}/results
+        run: |
+          python push_from_results.py shape || echo "推送失败,不影响归档"
+
       - name: 上传运行日志
         uses: actions/upload-artifact@v4
         with:
