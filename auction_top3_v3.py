@@ -131,13 +131,26 @@ def compute_market_sentiment(rows):
         state = "分歧"
     else:
         state = "退潮"
+
+    # 样本偏差检测:高开>2%占比>75%在真实全市场极罕见,
+    # 几乎总是"接口按涨幅降序截断的强势股子集"(如盘后/降级小池)。
+    # 此时情绪不可信,按中性"健康"处理并降一档出手数,避免误报主升。
+    biased = high > 75
+    if biased:
+        state = "健康"
+        temp = 50.0
     rule = SENTIMENT_RULES[state]
+    buy_n = rule["buy_n"]
+    if biased:
+        buy_n = min(buy_n, 2)  # 样本有偏时更保守
     return {
         "state": state, "temp": temp, "coef": rule["coef"],
-        "buy_n": rule["buy_n"], "desc": rule["desc"], "n": n,
+        "buy_n": buy_n,
+        "desc": ("样本为强势股子集(高开占比异常),已按中性保守处理" if biased else rule["desc"]),
+        "n": n,
         "high_ratio": round(high, 1), "limit_ratio": round(limit, 1),
         "strong_ratio": round(strong, 1), "updown": round(updown, 2),
-        "sample_warning": False,
+        "sample_warning": biased,
     }
 
 
@@ -304,8 +317,11 @@ def confirm_plan(r):
 def print_report(scored, buy, watch, sentiment, c):
     n = sentiment["n"]
     print("\n" + "=" * 74)
-    print("  市场情绪开关(全市场竞价广度)" if not sentiment["sample_warning"]
-          else "  市场情绪开关(样本不足,按中性处理)")
+    if sentiment.get("biased_note") or sentiment["sample_warning"]:
+        title = "  市场情绪开关(样本有偏,已按中性保守处理)"
+    else:
+        title = "  市场情绪开关(全市场竞价广度)"
+    print(title)
     print("=" * 74)
     label = {"主升": "🔥", "健康": "✅", "分歧": "⚡", "退潮": "🛑"}[sentiment["state"]]
     print(f"  情绪状态: {label} {sentiment['state']}  |  温度 {sentiment['temp']:.1f}/100  |  {sentiment['desc']}")
