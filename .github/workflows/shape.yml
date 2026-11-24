@@ -1,0 +1,45 @@
+name: A股形态选股·盘后广度择时
+
+on:
+  schedule:
+    # UTC 11:15 = 北京时间 19:15,周一至周五盘后
+    - cron: '15 11 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run-shape-selection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: pip install -q requests pandas numpy matplotlib
+
+      - name: 运行形态选股
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/results
+        run: |
+          python stock_shape_selector.py --top 15 --no-chart | tee run_log.txt
+
+      - name: 归档结果
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add results/ run_log.txt 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "auto: 形态选股结果 $(date +%Y%m%d)"
+          git push
+
+      - name: 上传运行日志
+        uses: actions/upload-artifact@v4
+        with:
+          name: shape-selection-log
+          path: run_log.txt
