@@ -36,13 +36,30 @@
 - **数据源**:竞价用东财→腾讯→DEMO三级降级;形态用新浪日K+腾讯,失败跳过该股不中断。
 - **输出**:`results/` 下按时间戳归档 CSV,由 workflow 自动 `git commit` 回仓库永久留存。
 
+## 微信推送
+
+选股结果会自动推送到微信(**Server酱 Turbo** 渠道),无需打开仓库:
+
+| 项目 | 说明 |
+|---|---|
+| 渠道 | Server酱 Turbo(免费 5 条/天,每日 0 点重置,每天 2 条任务够用) |
+| 本地定时任务凭证 | `/workspace/.push_config.json` 的 `channel: serverchan` + `serverchan_sendkey` |
+| GitHub Actions 凭证 | 仓库 Secret `SERVERCHAN_SENDKEY`(加密存储) |
+| 推送内容 | Markdown 榜单 + 市场情绪/广度结论 + 风险提示 |
+| 失败处理 | 推送失败会在对话里明确告警,不影响结果归档 |
+
+推送脚本:本地 `daily_push.py` / 云端 `push_from_results.py`。详见 `微信推送配置说明.md`。
+
+> PushPlus 因需付费实名已弃用,如需更换渠道见配置说明文档。
+
 ## GitHub 使用
 
 1. 仓库 **Settings → Actions → General → Workflow permissions** 勾选 **Read and write**。
-2. **Actions** 标签页可手动点击 "Run workflow" 测试任一流程。
-3. 交易日 9:26 竞价、19:15 形态自动运行,结果在 `results/` 查看。
+2. 仓库 **Settings → Secrets and variables → Actions** 添加 `SERVERCHAN_SENDKEY`(Server酱 SendKey)。
+3. **Actions** 标签页可手动点击 "Run workflow" 测试任一流程。
+4. 交易日 9:26 竞价、19:15 形态自动运行,结果推送微信并归档到 `results/`。
 
-> **时区**:GitHub Actions cron 用 UTC,北京时间 = UTC + 8。
+> **时区**:GitHub Actions cron 用 UTC,北京时间 = UTC + 8。推送标题日期已按北京时间(Asia/Shanghai)生成。
 
 ## 本地运行
 
