@@ -26,7 +26,8 @@ def now_cn():
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, WORKSPACE)
-from wechat_push import push, format_table, push_retry, already_pushed, mark_pushed
+from wechat_push import (push, format_table, push_retry, already_pushed, mark_pushed,
+                         remote_already_pushed, mark_remote_pushed)
 
 
 def run_script(mode):
@@ -226,15 +227,24 @@ def main():
         print("\n[--dry-run] 未实际推送。")
         return
 
-    # 当日去重:同一任务今天已成功推送过则跳过(应对错峰多触发)
-    task_key = f"{args.mode}_push"
+    # 竞价task_key与云端Actions统一(云端叫auction_v3_push),否则两端互不认识会双推
+    task_key = "auction_v3_push" if args.mode == "auction" else "shape_push"
+
+    # 跨端去重:先查本地标记,再查仓库标记(云端兜底若已推过则App跳过)
     if already_pushed(task_key):
-        print(f"\n[SKIP] 今日已成功推送过 {args.mode},跳过重复推送。")
+        print(f"\n[SKIP] 本地标记显示今日已推送过 {args.mode},跳过。")
+        return
+    if remote_already_pushed(task_key):
+        print(f"\n[SKIP] 仓库标记显示今日已推送过 {args.mode}(云端兜底已推),跳过。")
         return
 
     success, info = push_retry(title, msg, args.channel)
     if success:
-        mark_pushed(task_key)
+        mark_pushed(task_key)                       # 本地标记
+        if mark_remote_pushed(task_key):            # 写仓库标记 → 云端Actions读到会跳过
+            print("[*] 已写入仓库推送标记,云端兜底今日将自动跳过。")
+        else:
+            print("[WARN] 仓库标记写入失败,云端兜底可能重复推送(不影响本次送达)。")
         print(f"\n[OK] 微信推送成功: {title}")
     else:
         print(f"\n[FAIL] 微信推送失败(已重试3次): {info}")
