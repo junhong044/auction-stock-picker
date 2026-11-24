@@ -52,6 +52,14 @@ jobs:
             echo "无新增结果,跳过提交"
           fi
 
+      - name: 微信推送结果
+        if: always()
+        env:
+          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+          OUTPUT_DIR: ${{ github.workspace }}/results
+        run: |
+          python push_from_results.py auction || echo "推送失败,不影响归档"
+
       - name: 上传运行产物
         if: always()
         uses: actions/upload-artifact@v4
