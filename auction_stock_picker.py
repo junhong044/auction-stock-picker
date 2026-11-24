@@ -25,7 +25,7 @@ A 股集合竞价选股系统 (Auction Stock Picker)
     python3.11 auction_stock_picker.py --top 20 --min-gap 2 --max-gap 9.5
     python3.11 auction_stock_picker.py --no-chart          # 不生成图表
 
-结果保存到 /workspace,文件名带时间戳。
+结果保存到 OUTPUT_DIR 指定目录(默认脚本所在目录),文件名带时间戳。
 =====================================================================
 """
 
