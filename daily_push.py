@@ -17,19 +17,25 @@ import glob
 import argparse
 import subprocess
 import datetime as dt
+from zoneinfo import ZoneInfo
 
-sys.path.insert(0, "/workspace")
+CN_TZ = ZoneInfo("Asia/Shanghai")
+def now_cn():
+    """北京时间,保证推送标题日期正确(不受运行机器时区影响)"""
+    return dt.datetime.now(CN_TZ)
+
+WORKSPACE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, WORKSPACE)
 from wechat_push import push, format_table
-
-WORKSPACE = "/workspace"
 
 
 def run_script(mode):
     """运行对应选股脚本,返回(是否成功, 输出文本)"""
+    py = sys.executable  # 用当前解释器,不写死 python3.11
     if mode == "shape":
-        cmd = ["python3.11", f"{WORKSPACE}/stock_shape_selector.py", "--top", "12", "--no-chart"]
+        cmd = [py, os.path.join(WORKSPACE, "stock_shape_selector.py"), "--top", "12", "--no-chart"]
     else:
-        cmd = ["python3.11", f"{WORKSPACE}/auction_stock_picker.py",
+        cmd = [py, os.path.join(WORKSPACE, "auction_stock_picker.py"),
                "--source", "eastmoney", "--top", "12", "--no-chart"]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd=WORKSPACE)
     out = r.stdout + "\n" + r.stderr
@@ -64,7 +70,7 @@ def build_shape_message(out):
     """构造形态选股推送内容"""
     breadth_line = extract_breadth(out)
     csv = load_latest_csv("形态选股结果_*.csv")
-    today = dt.datetime.now().strftime("%Y-%m-%d")
+    today = now_cn().strftime("%Y-%m-%d")
     lines = [f"## 📊 A股形态选股 · {today}"]
     if breadth_line:
         lines.append(f"\n**{breadth_line}**")
@@ -99,7 +105,7 @@ def build_shape_message(out):
 def build_auction_message(out):
     """构造竞价选股推送内容"""
     csv = load_latest_csv("竞价选股结果_*.csv")
-    today = dt.datetime.now().strftime("%Y-%m-%d")
+    today = now_cn().strftime("%Y-%m-%d")
     lines = [f"## 📊 A股竞价选股 · {today}"]
     # 提取真实数据源:优先"快照获取"行(反映实际降级的源),其次标注降级
     src_line = ""
@@ -152,10 +158,10 @@ def main():
     print("\n".join(l for l in out.splitlines() if l.strip())[:3000])
 
     if args.mode == "shape":
-        title = f"A股形态选股 · {dt.datetime.now():%m-%d}"
+        title = f"A股形态选股 · {now_cn():%m-%d}"
         msg = build_shape_message(out)
     else:
-        title = f"A股竞价选股 · {dt.datetime.now():%m-%d}"
+        title = f"A股竞价选股 · {now_cn():%m-%d}"
         msg = build_auction_message(out)
 
     print("\n" + "=" * 50)
