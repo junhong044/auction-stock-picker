@@ -20,8 +20,11 @@ import os
 import sys
 import json
 import time
+import base64
 import argparse
 import datetime as _dt
+import urllib.request
+import urllib.error
 import requests
 
 TIMEOUT = 15
@@ -170,6 +173,99 @@ def mark_pushed(task_key, marker_dir=None):
         with open(p, "w", encoding="utf-8") as f:
             f.write(_dt.datetime.now().isoformat())
         return True
+    except Exception:
+        return False
+
+
+# ---------------- 跨端共享标记(本地App 与 云端Actions 去重) ----------------
+# 真相源统一放在 GitHub 仓库 results/ 目录,文件名与本地一致:.push_done_{task}_{date}
+# 本地App准点推送成功后调用 mark_remote_pushed 写入;云端Actions检出后由
+# push_from_results.py 用 already_pushed(task_key, RESULTS) 读到并跳过。
+GH_REPO = os.environ.get("GH_REPO", "junhong044/auction-stock-picker")
+GH_TOKEN_FILE = os.environ.get("GH_TOKEN_FILE", "/workspace/.gh_token")
+
+
+def _gh_token():
+    """GitHub令牌:环境变量优先,其次本地文件(不入库)。云端Actions用自带的 GITHUB_TOKEN。"""
+    for k in ("GITHUB_TOKEN", "GH_TOKEN", "GH_PAT"):
+        v = os.environ.get(k)
+        if v:
+            return v.strip()
+    try:
+        if os.path.exists(GH_TOKEN_FILE):
+            t = open(GH_TOKEN_FILE, encoding="utf-8").read().strip()
+            if t:
+                return t
+    except Exception:
+        pass
+    return None
+
+
+def remote_marker_path(task_key, date=None):
+    """仓库内标记路径(与本地同名),北京时间日期。"""
+    if date is None:
+        try:
+            from zoneinfo import ZoneInfo
+            date = _dt.datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d")
+        except Exception:
+            date = _dt.datetime.now().strftime("%Y%m%d")
+    return f"results/.push_done_{task_key}_{date}"
+
+
+def remote_already_pushed(task_key):
+    """查仓库里是否已有当日该任务的推送标记。网络/凭证异常时返回 False(保守:不跳过,避免漏推)。"""
+    tok = _gh_token()
+    if not tok:
+        return False
+    path = remote_marker_path(task_key)
+    url = f"https://api.github.com/repos/{GH_REPO}/contents/{path}"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"token {tok}", "Accept": "application/vnd.github+json",
+        "User-Agent": "stock-push"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return r.status == 200
+    except urllib.error.HTTPError as e:
+        return False
+    except Exception:
+        return False
+
+
+def mark_remote_pushed(task_key):
+    """把当日推送成功标记写入仓库 results/,供云端Actions读取去重。返回是否成功。"""
+    tok = _gh_token()
+    if not tok:
+        return False
+    path = remote_marker_path(task_key)
+    url = f"https://api.github.com/repos/{GH_REPO}/contents/{path}"
+    # 先取现有 sha(若文件已存在,更新需要带 sha)
+    sha = None
+    try:
+        q = urllib.request.Request(url, headers={
+            "Authorization": f"token {tok}", "Accept": "application/vnd.github+json",
+            "User-Agent": "stock-push"})
+        with urllib.request.urlopen(q, timeout=TIMEOUT) as r:
+            sha = json.loads(r.read()).get("sha")
+    except Exception:
+        pass
+    try:
+        from zoneinfo import ZoneInfo
+        ts = _dt.datetime.now(ZoneInfo("Asia/Shanghai")).isoformat()
+    except Exception:
+        ts = _dt.datetime.now().isoformat()
+    payload = {
+        "message": f"chore: push marker {task_key}",
+        "content": base64.b64encode(ts.encode()).decode(),
+        "branch": "main",
+    }
+    if sha:
+        payload["sha"] = sha
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="PUT", headers={
+        "Authorization": f"token {tok}", "Accept": "application/vnd.github+json",
+        "User-Agent": "stock-push", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return r.status in (200, 201)
     except Exception:
         return False
 
