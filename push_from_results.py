@@ -8,6 +8,13 @@ import os
 import sys
 import glob
 import datetime as dt
+from zoneinfo import ZoneInfo
+
+CN_TZ = ZoneInfo("Asia/Shanghai")
+
+def now_cn():
+    """北京时间(GitHub Actions 服务器是 UTC,必须显式转换)"""
+    return dt.datetime.now(CN_TZ)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wechat_push import push, format_table
@@ -21,7 +28,7 @@ def latest_csv(pattern):
 
 
 def fmt(path, kind):
-    today = dt.datetime.now().strftime("%Y-%m-%d")
+    today = now_cn().strftime("%Y-%m-%d")
     if kind == "shape":
         lines = [f"## 📊 A股形态选股 · {today}"]
         cols_map = [("code", "代码"), ("name", "名称"), ("score", "综合分"),
@@ -58,7 +65,7 @@ def fmt(path, kind):
 def main():
     kind = sys.argv[1] if len(sys.argv) > 1 else "shape"
     pattern = "形态选股结果_*.csv" if kind == "shape" else "竞价选股结果_*.csv"
-    title = f"{'形态' if kind == 'shape' else '竞价'}选股 · {dt.datetime.now().strftime('%m-%d')}"
+    title = f"{'形态' if kind == 'shape' else '竞价'}选股 · {now_cn().strftime('%m-%d')}"
     msg = fmt(latest_csv(pattern), kind)
     ok, info = push(title, msg, channel="serverchan")
     print(f"[推送] {'OK' if ok else 'FAIL'}: {info}")
