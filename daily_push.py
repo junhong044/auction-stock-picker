@@ -34,6 +34,10 @@ def run_script(mode):
     py = sys.executable  # 用当前解释器,不写死 python3.11
     if mode == "shape":
         cmd = [py, os.path.join(WORKSPACE, "stock_shape_selector.py"), "--top", "12", "--no-chart"]
+    elif mode == "auction":
+        # v3: 情绪开关 + 稳健评分 + 双区 Top3
+        cmd = [py, os.path.join(WORKSPACE, "auction_top3_v3.py"),
+               "--source", "eastmoney", "--no-chart"]
     else:
         cmd = [py, os.path.join(WORKSPACE, "auction_stock_picker.py"),
                "--source", "eastmoney", "--top", "12", "--no-chart"]
@@ -102,46 +106,95 @@ def build_shape_message(out):
     return "\n".join(lines)
 
 
+def _fmt(v):
+    return f"{v:.2f}" if isinstance(v, float) else str(v)
+
+
 def build_auction_message(out):
-    """构造竞价选股推送内容"""
-    csv = load_latest_csv("竞价选股结果_*.csv")
+    """v3 竞价推送:情绪开关 + 🏆首选Top3 + 📋观察区 + 开盘确认清单"""
+    csv = load_latest_csv("竞价Top3结果_*.csv")
+    # 兼容旧脚本输出
+    if not csv:
+        csv = load_latest_csv("竞价选股结果_*.csv")
     today = now_cn().strftime("%Y-%m-%d")
-    lines = [f"## 📊 A股竞价选股 · {today}"]
-    # 提取真实数据源:优先"快照获取"行(反映实际降级的源),其次标注降级
-    src_line = ""
-    degraded = []
-    for line in out.splitlines():
-        if "快照获取" in line:
-            src_line = line.strip()
-        if "降级" in line or "源不可用" in line:
-            degraded.append(line.strip())
-    if src_line:
-        lines.append(f"\n{src_line}")
-    elif any("DEMO" in d for d in degraded):
-        lines.append("\n⚠️ 数据源降级至 DEMO 模拟数据,以下结果仅供演示,非真实行情!")
-    if degraded:
+    lines = [f"## 📊 A股竞价选股 v3 · {today}"]
+
+    # 数据源状态
+    degraded = [l.strip() for l in out.splitlines() if "降级" in l or "源不可用" in l]
+    if any("DEMO" in d for d in degraded):
+        lines.append("\n⚠️ 数据源降级至 DEMO 模拟数据,仅供演示,非真实行情!")
+    elif degraded:
         lines.append("\n> " + " / ".join(degraded[:2]))
+
+    # 情绪状态(从CSV首行读取)
+    sentiment_state, sentiment_temp = "", ""
     if csv:
         df = df_from_csv(csv)
-        if not df.empty:
-            cols_map = [("code", "代码"), ("name", "名称"), ("score", "总分"),
-                        ("gap", "竞价涨幅%"), ("vol_ratio", "量比"), ("amount_wan", "竞价额(万)")]
-            cols = [c for c, _ in cols_map if c in df.columns]
-            headers = [dict(cols_map)[c] for c in cols]
-            rows = []
-            for _, r in df.head(12).iterrows():
-                row = []
-                for c in cols:
-                    v = r[c]
-                    row.append(f"{v:.2f}" if isinstance(v, float) else str(v))
-                rows.append(row)
-            lines.append(f"\nTop{min(12, len(df))}:\n")
-            lines.append(format_table(headers, rows))
+        if "sentiment_state" in df.columns and not df.empty:
+            sentiment_state = str(df.iloc[0]["sentiment_state"])
+            sentiment_temp = str(df.iloc[0].get("sentiment_temp", ""))
+    if sentiment_state:
+        icons = {"主升": "🔥", "健康": "✅", "分歧": "⚡", "退潮": "🛑"}
+        lines.append(f"\n**市场情绪: {icons.get(sentiment_state, '')} {sentiment_state}"
+                     f"(温度 {sentiment_temp})**")
+        if sentiment_state == "退潮":
+            lines.append("\n> 🛑 退潮防守:今日首选买入区关闭,以下仅作观察,不建议实盘出手。")
+        elif sentiment_state == "分歧":
+            lines.append("\n> ⚡ 多空分歧:减量降仓,精选少数标的。")
+
+    if not csv:
+        lines.append("\n今日无竞价结果(可能非交易时段或数据源不可用)。")
+        lines.append("\n---\n⚠️ 量化辅助筛选,需结合题材消息面二次确认,不构成投资建议。")
+        return "\n".join(lines)
+
+    df = df_from_csv(csv)
+    if df.empty:
+        lines.append("\n今日无候选股票(硬约束过滤所致,宁缺毋滥)。")
+        lines.append("\n---\n⚠️ 量化辅助筛选,不构成投资建议。")
+        return "\n".join(lines)
+
+    # v3 CSV 有 zone 列 -> 双区推送
+    if "zone" in df.columns and "score_worst" in df.columns:
+        buy = df[df["zone"] == "首选"]
+        watch = df[df["zone"] == "观察"]
+        lines.append(f"\n### 🏆 首选买入区 Top{len(buy)}")
+        if buy.empty:
+            lines.append("\n(空)无票达到稳健分门槛或情绪退潮,宁缺毋滥。")
         else:
-            lines.append("\n今日无候选股票(约束过滤所致)。")
+            cols_map = [("code", "代码"), ("name", "名称"), ("score_robust", "稳健分"),
+                        ("gap", "高开%"), ("vol_ratio", "量比"), ("amount_wan", "竞价额万"),
+                        ("weibi", "委比%")]
+            cols = [c for c, _ in cols_map if c in buy.columns]
+            headers = [dict(cols_map)[c] for c in cols]
+            rows = [[_fmt(r[c]) for c in cols] for _, r in buy.head(3).iterrows()]
+            lines.append("\n" + format_table(headers, rows))
+            # 确认清单
+            lines.append("\n**开盘确认(9:30-9:35):**")
+            for _, r in buy.head(3).iterrows():
+                nm = str(r.get("name", ""))[:8]
+                openp = r.get("price", 0)
+                try:
+                    openp = float(openp)
+                except (ValueError, TypeError):
+                    openp = 0
+                lines.append(f"\n- **{r['code']} {nm}**: 站稳 {openp:.2f} 放量不破→买;"
+                             f"跌破竞价价+卖压放大→弃")
+        if not watch.empty:
+            lines.append(f"\n### 📋 观察区 Top{len(watch)}")
+            for _, r in watch.head(3).iterrows():
+                lines.append(f"\n- {r['code']} {str(r.get('name', ''))[:8]}: "
+                             f"稳健分 {_fmt(r.get('score', ''))} 高开 {_fmt(r.get('gap', ''))}%")
     else:
-        lines.append("\n今日无候选股票,未生成结果。")
-    lines.append("\n---\n⚠️ 竞价选股为量化辅助筛选,需结合题材和消息面二次确认,不构成投资建议。")
+        # 旧版兼容:Top12 表格
+        cols_map = [("code", "代码"), ("name", "名称"), ("score", "总分"),
+                    ("gap", "竞价涨幅%"), ("vol_ratio", "量比"), ("amount_wan", "竞价额(万)")]
+        cols = [c for c, _ in cols_map if c in df.columns]
+        headers = [dict(cols_map)[c] for c in cols]
+        rows = [[_fmt(r[c]) for c in cols] for _, r in df.head(12).iterrows()]
+        lines.append("\n" + format_table(headers, rows))
+
+    lines.append("\n---\n⚠️ 竞价选股为量化辅助筛选,需结合题材和消息面二次确认,"
+                 "短线波动大,不构成投资建议。")
     return "\n".join(lines)
 
 
