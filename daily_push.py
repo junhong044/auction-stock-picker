@@ -101,11 +101,20 @@ def build_auction_message(out):
     csv = load_latest_csv("竞价选股结果_*.csv")
     today = dt.datetime.now().strftime("%Y-%m-%d")
     lines = [f"## 📊 A股竞价选股 · {today}"]
-    # 提取数据源
+    # 提取真实数据源:优先"快照获取"行(反映实际降级的源),其次标注降级
+    src_line = ""
+    degraded = []
     for line in out.splitlines():
-        if "快照获取" in line or "数据源=" in line:
-            lines.append(f"\n{line.strip()}")
-            break
+        if "快照获取" in line:
+            src_line = line.strip()
+        if "降级" in line or "源不可用" in line:
+            degraded.append(line.strip())
+    if src_line:
+        lines.append(f"\n{src_line}")
+    elif any("DEMO" in d for d in degraded):
+        lines.append("\n⚠️ 数据源降级至 DEMO 模拟数据,以下结果仅供演示,非真实行情!")
+    if degraded:
+        lines.append("\n> " + " / ".join(degraded[:2]))
     if csv:
         df = df_from_csv(csv)
         if not df.empty:
