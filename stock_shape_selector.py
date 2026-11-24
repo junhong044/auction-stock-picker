@@ -24,6 +24,8 @@ import pandas as pd
 import requests
 
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/workspace")
+MIN_PRICE = 15.0          # 股价下限:低于此价剔除
+EXCLUDE_STAR = True       # 是否剔除科创板(688/689)
 SINA_KLINE = "https://quotes.sina.cn/cn/api/jsonp_v2.php/var%20x/CN_MarketDataService.getKLineData"
 TENCENT_SPOT = "https://qt.gtimg.cn/q="
 
@@ -209,11 +211,25 @@ def fetch_names(session, codes):
     return names
 
 
+def is_excluded(code, f):
+    """硬过滤:科创板 + 低价股"""
+    num = re.sub(r"\D", "", code)
+    # 剔除科创板 688/689
+    if EXCLUDE_STAR and (num.startswith("688") or num.startswith("689")):
+        return True
+    # 剔除股价低于下限
+    if f["close"] < MIN_PRICE:
+        return True
+    return False
+
+
 def build_ranking(kdata, names=None):
     names = names or {}
     rows = []
     for code, k in kdata.items():
         f = calc_features(k)
+        if is_excluded(code, f):
+            continue
         hits, shape_score = detect_shapes(f)
         if not hits:
             continue
@@ -247,6 +263,8 @@ def gen_demo(kdata):
     rows = []
     for code, k in list(kdata.items())[:60]:
         f = calc_features(k)
+        if is_excluded(code, f):
+            continue
         hits, ss = detect_shapes(f)
         if not hits:
             hits, ss = ["DEMO样本"], 20
@@ -305,13 +323,17 @@ def main():
 
     print("=" * 60)
     print(" A股形态选股 + 广度择时  [Sequoia-X形态 × quant_v9择时]")
+    print(f" 过滤条件:剔除科创板({'开' if EXCLUDE_STAR else '关'}) | 股价≥{MIN_PRICE:.0f}元")
     print("=" * 60)
 
     pool = POOL
     if args.pool and os.path.exists(args.pool):
         with open(args.pool) as fh:
             pool = [x.strip() for x in fh if x.strip()]
-    print(f"[*] 股票池 {len(pool)} 只,拉取新浪日K...")
+    raw_cnt = len(pool)
+    if EXCLUDE_STAR:
+        pool = [c for c in pool if not re.sub(r"\D", "", c).startswith(("688", "689"))]
+    print(f"[*] 股票池 {len(pool)} 只(原始{raw_cnt},剔除科创板{raw_cnt-len(pool)}),拉取新浪日K...")
 
     t0 = time.time()
     kdata = fetch_batch(pool)
