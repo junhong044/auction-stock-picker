@@ -19,7 +19,9 @@
 import os
 import sys
 import json
+import time
 import argparse
+import datetime as _dt
 import requests
 
 TIMEOUT = 15
@@ -139,6 +141,49 @@ def push(title, content, channel=None):
     if not fn:
         return False, f"未知渠道: {channel}"
     return fn(title, content)
+
+
+def marker_path(task_key, marker_dir=None):
+    """当日推送标记文件路径(北京时间日期,避免UTC跨天误判)。"""
+    d = marker_dir or os.environ.get("PUSH_MARKER_DIR") or os.path.dirname(os.path.abspath(__file__))
+    try:
+        from zoneinfo import ZoneInfo
+        today = _dt.datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d")
+    except Exception:
+        today = _dt.datetime.now().strftime("%Y%m%d")
+    return os.path.join(d, f".push_done_{task_key}_{today}")
+
+
+def already_pushed(task_key, marker_dir=None):
+    """今天是否已成功推送过该任务(用于错峰多触发去重)。"""
+    try:
+        return os.path.exists(marker_path(task_key, marker_dir))
+    except Exception:
+        return False
+
+
+def mark_pushed(task_key, marker_dir=None):
+    """写入当日推送成功标记。"""
+    try:
+        p = marker_path(task_key, marker_dir)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(_dt.datetime.now().isoformat())
+        return True
+    except Exception:
+        return False
+
+
+def push_retry(title, content, channel=None, retries=3, backoff=4):
+    """带重试的推送。返回 (成功?, 信息)。应对瞬时网络抖动/Server酱偶发失败。"""
+    last = ""
+    for i in range(retries):
+        ok, last = push(title, content, channel)
+        if ok:
+            return True, last
+        if i < retries - 1:
+            time.sleep(backoff * (i + 1))
+    return False, last
 
 
 # ---------------- 格式化工具 ----------------
