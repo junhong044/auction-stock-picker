@@ -17,7 +17,7 @@ def now_cn():
     return dt.datetime.now(CN_TZ)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wechat_push import push, format_table
+from wechat_push import push, format_table, push_retry, already_pushed, mark_pushed
 
 RESULTS = os.environ.get("OUTPUT_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "results"))
 
@@ -143,7 +143,15 @@ def main():
         path = latest_csv("竞价选股结果_*.csv")
         msg = fmt_auction_v3(path)
         title = f"竞价选股 · {now_cn().strftime('%m-%d')}"
-    ok, info = push(title, msg, channel="serverchan")
+    # 当日去重:错峰多触发时,今天已成功推送过则跳过
+    task_key = f"{kind}_push"
+    marker_dir = RESULTS
+    if already_pushed(task_key, marker_dir):
+        print(f"[推送] SKIP: 今日已成功推送过 {kind},跳过重复推送")
+        sys.exit(0)
+    ok, info = push_retry(title, msg, channel="serverchan")
+    if ok:
+        mark_pushed(task_key, marker_dir)
     print(f"[推送] {'OK' if ok else 'FAIL'}: {info}")
     sys.exit(0 if ok else 1)
 
