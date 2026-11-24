@@ -42,9 +42,11 @@ jobs:
 
       - name: 归档结果到 results 目录
         run: |
+          # 滚动保留:竞价CSV只留最近10个,防止仓库无限膨胀
+          ls -t results/竞价选股结果_*.csv 2>/dev/null | tail -n +11 | xargs -r rm -f
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f results/ README.md 2>/dev/null || true
+          git add -A results/ 2>/dev/null || true
           if ! git diff --cached --quiet; then
             git commit -m "chore: 竞价选股结果 $(date -u +'%Y-%m-%d %H:%M UTC')"
             git push
