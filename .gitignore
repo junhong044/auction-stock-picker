@@ -1,3 +1,11 @@
-
 # 微信推送凭证(含token,禁止入库)
 .push_config.json
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 本地图表(结果CSV保留归档,图表不入库)
+*.png
+.DS_Store
