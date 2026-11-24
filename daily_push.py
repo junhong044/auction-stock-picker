@@ -26,7 +26,7 @@ def now_cn():
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, WORKSPACE)
-from wechat_push import push, format_table
+from wechat_push import push, format_table, push_retry, already_pushed, mark_pushed
 
 
 def run_script(mode):
@@ -226,11 +226,18 @@ def main():
         print("\n[--dry-run] 未实际推送。")
         return
 
-    success, info = push(title, msg, args.channel)
+    # 当日去重:同一任务今天已成功推送过则跳过(应对错峰多触发)
+    task_key = f"{args.mode}_push"
+    if already_pushed(task_key):
+        print(f"\n[SKIP] 今日已成功推送过 {args.mode},跳过重复推送。")
+        return
+
+    success, info = push_retry(title, msg, args.channel)
     if success:
+        mark_pushed(task_key)
         print(f"\n[OK] 微信推送成功: {title}")
     else:
-        print(f"\n[FAIL] 微信推送失败: {info}")
+        print(f"\n[FAIL] 微信推送失败(已重试3次): {info}")
         sys.exit(1)
 
 
