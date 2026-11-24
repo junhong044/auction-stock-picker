@@ -2,8 +2,12 @@ name: A股形态选股·盘后广度择时
 
 on:
   schedule:
-    # UTC 11:15 = 北京时间 19:15,周一至周五盘后
-    - cron: '15 11 * * 1-5'
+    # GitHub Actions 免费版 cron 高峰期常延迟数十分钟甚至更久。
+    # 错峰三点触发 + push_from_results 当日去重,确保 19:15 附近至少成功推送一次。
+    # 北京时间 = UTC+8,盘后数据 15:00 后就绪:
+    - cron: '45 10 * * 1-5'   # 18:45 提前触发(对抗延迟)
+    - cron: '15 11 * * 1-5'   # 19:15 主触发
+    - cron: '45 11 * * 1-5'   # 19:45 兜底
   workflow_dispatch:
 
 permissions:
@@ -42,13 +46,24 @@ jobs:
           git diff --cached --quiet || git commit -m "auto: 形态选股结果 $(date +%Y%m%d)"
           git push
 
-      - name: 微信推送结果
+      - name: 微信推送结果(带重试+当日去重)
         if: always()
         env:
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
           OUTPUT_DIR: ${{ github.workspace }}/results
         run: |
           python push_from_results.py shape || echo "推送失败,不影响归档"
+
+      - name: 持久化推送标记(供错峰触发去重)
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f results/.push_done_* 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: 推送标记 $(date -u +'%Y%m%d-%H%M')" || true
+            git push || true
+          fi
 
       - name: 上传运行日志
         uses: actions/upload-artifact@v4
